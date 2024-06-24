@@ -4195,36 +4195,39 @@ class WAS_Image_Crop_Face_Aligned:
             cstr("Face found with: face_recognition model").warning.print()
             faces = face_location
 
+        if len(faces) == 0:
+            cstr("No faces found in the image!").warning.print()
+            return (pil2tensor(Image.new("RGB", (512, 512), (0, 0, 0))), False)
+
         # Assume there is only one face in the image
         x, y, w, h = faces[0]
 
-        # Check if the face region aligns with the edges of the original image
-        left_adjust = max(0, -x)
-        right_adjust = max(0, x + w - img_rgb.shape[1])
-        top_adjust = max(0, -y)
-        bottom_adjust = max(0, y + h - img_rgb.shape[0])
+        # Detect eyes
+        eye_cascade = cv2.CascadeClassifier(
+            os.path.join(WAS_SUITE_ROOT, "res", "haarcascade_eye.xml")
+        )
+        roi_gray = gray[y : y + h, x : x + w]
+        eyes = eye_cascade.detectMultiScale(roi_gray)
+        print(eyes)
 
-        # Check if the face region is near any edges, and if so, pad in the opposite direction
-        if left_adjust < w:
-            x += right_adjust
-        elif right_adjust < w:
-            x -= left_adjust
-        if top_adjust < h:
-            y += bottom_adjust
-        elif bottom_adjust < h:
-            y -= top_adjust
-
-        w -= left_adjust + right_adjust
-        h -= top_adjust + bottom_adjust
+        if len(eyes) >= 2:
+            # Calculate the center of the eyes
+            eye_centers = [
+                (ex + ew // 2, ey + eh // 2) for (ex, ey, ew, eh) in eyes[:2]
+            ]
+            center_x = sum(ec[0] for ec in eye_centers) // 2 + x
+            center_y = sum(ec[1] for ec in eye_centers) // 2 + y
+        else:
+            # If eyes are not detected, use the center of the face
+            center_x = x + w // 2
+            center_y = y + h // 2
 
         # Calculate padding around face
         face_size = min(h, w)
         y_pad = int(face_size * padding)
         x_pad = int(face_size * padding)
 
-        # Calculate square coordinates around face
-        center_x = x + w // 2
-        center_y = y + h // 2
+        # Calculate square coordinates around face, centered on eyes
         half_size = (face_size + max(x_pad, y_pad)) // 2
         top = max(0, center_y - half_size)
         bottom = min(img_rgb.shape[0], center_y + half_size)
